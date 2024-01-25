@@ -1,5 +1,5 @@
-let canvas = document.getElementById("viewport");
-let ctx = canvas.getContext("2d");
+let canvas = document.getElementById('viewport');
+let ctx = canvas.getContext('2d');
 
 const larguraTela = canvas.width;
 const alturaTela = canvas.height;
@@ -7,6 +7,17 @@ const origemTela = { x: canvas.width / 2, y: canvas.height / 2 };
 
 let tempoDecorrido = 0.0;
 let fTheta = 0.0;
+
+let arqObj = undefined;
+
+document.getElementById('arq').addEventListener('change', function () {
+  let fr = new FileReader();
+  fr.onload = function () {
+    lerArqObj(fr.result);
+  };
+  fr.readAsText(this.files[0]);
+  this.value = '';
+});
 
 ////////////////////////// CLASSES //////////////////////////
 
@@ -21,6 +32,26 @@ class Vec3d {
 
   matriz() {
     return [[this.x], [this.y], [this.z], [this.w]];
+  }
+
+  static adicao(v1, v2) {
+    return new Vec3d(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z);
+  }
+
+  static subtracao(v1, v2) {
+    return new Vec3d(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+  }
+
+  static produtoVetorial(v1, v2) {
+    return new Vec3d(
+      v1.y * v2.z - v1.z * v2.y,
+      v1.z * v2.x - v1.x * v2.z,
+      v1.x * v2.y - v1.y * v2.x
+    );
+  }
+
+  static produtoEscalar(v1, v2) {
+    return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
   }
 }
 
@@ -60,13 +91,14 @@ class Matriz4x4 {
 
   // matriz de projecao com valores de plano mais proximo, mais distante e campo de visão
   static projecao(fPerto, fLonge, fCdv) {
-    let fAspecto = larguraTela / alturaTela; // razão de aspecto
-    let fCdvRad = 1.0 / Math.tan((fCdv * 0.01) / (180.0 * Math.PI)); // campo de visão em radianos
+    let escala = 1 / Math.tan(fCdv * 0.001 * (Math.PI / 180)); // escala
+    // let fAspecto = larguraTela / alturaTela; // razão de aspecto
+    // let fCdvRad = 1.0 / (Math.tan(fCdv * 0.01) / (180.0 * Math.PI)); // campo de visão em radianos
     return [
-      [fAspecto * fCdvRad, 0, 0, 0],
-      [0, fCdvRad, 0, 0],
+      [escala, 0, 0, 0],
+      [0, escala, 0, 0],
       [0, 0, fLonge / (fLonge - fPerto), 1],
-      [0, 0, (-fLonge * fPerto) / (fLonge - fPerto), 0],
+      [0, 0, -((fLonge * fPerto) / (fLonge - fPerto)), 0],
     ];
   }
 
@@ -100,11 +132,51 @@ class Matriz4x4 {
 
 ////////////////////////// INICIALIZAÇÃO //////////////////////////
 
+//ler arquivo .obj
+function lerArqObj(conteudo) {
+  let linhas = conteudo.split('\n');
+
+  let modelo = new Modelo();
+
+  let vertices = [];
+  linhas.forEach((linha) => {
+    let palavras = linha.replace(/(\r\n|\n|\r|  )/gm, '').split(' ');
+    if (palavras[0] === 'v') {
+      vertices.push(
+        new Vec3d(
+          parseFloat(palavras[1]),
+          parseFloat(palavras[2]),
+          parseFloat(palavras[3])
+        )
+      );
+    }
+  });
+
+  // console.log(vertices);
+
+  modelo.poligonos = [];
+  linhas.forEach((linha) => {
+    let palavras = linha.replace(/(\r\n|\n|\r|  )/gm, '').split(' ');
+    // console.log(palavras);
+    if (palavras[0] === 'f') {
+      let poligono = new Poligono();
+      for (i = 1; i < palavras.length; i++) {
+        poligono.vertices.push(vertices[parseInt(palavras[i]) - 1]);
+      }
+      modelo.poligonos.push(poligono);
+    }
+  });
+
+  // console.log(modelo.poligonos[0].vertices);
+
+  arqObj = modelo;
+}
+
 function InitViewport(params) {
-  console.log("InitViewport");
+  console.log('InitViewport');
 
   // criar matriz de projeção
-  let matrizProj = Matriz4x4.projecao(0.1, 1000.0, 90.0);
+  let matrizProj = Matriz4x4.projecao(0.1, 1000.0, 90);
 
   // cria um cubo de triangulos
   let cuboT = new Modelo();
@@ -177,35 +249,54 @@ function InitViewport(params) {
     ]),
   ];
 
-  transladarModelo(cuboP, -0.5, -0.5, -0.5);
+  arqObj = cuboP;
+
+  // variaveis de câmera
+  let vecCamera = new Vec3d(-0.5, 0, -3);
+  let vecDirVisao = new Vec3d(0, 0, 1);
+  let vecCima = new Vec3d(0, 1, 0);
 
   // loop de renderização
   let tInicio = Date.now();
   setInterval(() => {
+    // events
+    handle(vecCamera);
+    let vecAlvo = Vec3d.adicao(vecCamera, vecDirVisao);
+
+    // matriz de câmera
+    let matCamera = matrizApontarPara(vecCamera, vecAlvo, vecCima);
+    // matriz de visão
+    let matVisao = matrizInverterApontarPara(matCamera);
+
+    // update
+    // transladarModelo(arqObj, 0, Math.cos(fTheta) * 0.005, 0);
+    // rotacionarY(arqObj, 0.3 * tempoDecorrido * 0.001);
+
+    // render
     limpaTela();
-    transladarModelo(cuboP, 0, Math.cos(fTheta) * 0.005, 0);
-    rotacionarY(cuboP, 0.3 * tempoDecorrido * 0.001);
-    desenhaModelo(cuboP, matrizProj);
+    desenhaModelo(arqObj, matrizProj, matVisao);
+
+    // tempo
     tempoDecorrido = Date.now() - tInicio;
-    document.getElementById("frame time").innerHTML = tempoDecorrido + "ms";
+    document.getElementById('frame time').innerHTML = tempoDecorrido + 'ms';
     fTheta += tempoDecorrido * 0.001;
     tInicio = Date.now();
-  }, 1000 / 30);
+  }, 1000 / 60);
 }
 
 ////////////////////////// RENDER //////////////////////////
 
 // limpa a tela do viewport
 function limpaTela() {
-  ctx.fillStyle = "black";
+  ctx.fillStyle = 'black';
   ctx.fillRect(0, 0, larguraTela, alturaTela);
 }
 
-function desenhaModelo(modelo, matrizProj) {
-  ctx.strokeStyle = "white";
+function desenhaModelo(modelo, matrizProj, matrizVisao) {
+  ctx.strokeStyle = 'white';
   if (!modelo.triangulos) {
     modelo.poligonos.forEach((poligono) => {
-      desenhaPoligono(poligono, matrizProj);
+      desenhaPoligono(poligono, matrizProj, matrizVisao);
     });
   } else {
     modelo.triangulos.forEach((triangulo) => {
@@ -247,13 +338,21 @@ function desenhaTriangulo(triangulo, matrizProj) {
 }
 
 // desenha na viewport um poligono com de coordenadas 3D
-function desenhaPoligono(poligono, matrizProj) {
+function desenhaPoligono(poligono, matrizProj, matrizVisao) {
+  // converter world space -> view space
+  let vertsView = [];
+  poligono.vertices.forEach((vertice) => {
+    vertsView.push(multiplicaMatrizPorVec3d(matrizVisao, vertice));
+  });
+
   // cria vetor de vértices projetados para viewport
   let vertsProj = [];
-  poligono.vertices.forEach((vertice) => {
-    vertice.z += 3;
+  vertsView.forEach((vertice) => {
+    // vertice.z += 3;
+    // vertice.y += 0.5;
     vertsProj.push(multiplicaMatrizPorVec3d(matrizProj, vertice));
-    vertice.z -= 3;
+    // vertice.z -= 3;
+    // vertice.y -= 0.5;
   });
 
   // ajustar coordenadas de projeção ao centro da tela
@@ -418,6 +517,56 @@ function escalonarModelo(modelo, escala) {
 
 ////////////////////////// MATEMATICA //////////////////////////
 
+// normaliza um vetor
+function normalizaVec3d(vec) {
+  let modulo = Math.sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z);
+  return new Vec3d(vec.x / modulo, vec.y / modulo, vec.z / modulo);
+}
+
+function matrizInverterApontarPara(mat) {
+  let matriz = [
+    [mat[0][0], mat[1][0], mat[2][0], 0],
+    [mat[0][1], mat[1][1], mat[2][1], 0],
+    [mat[0][2], mat[1][2], mat[2][2], 0],
+    [
+      -(mat[3][0] * mat[0][0] + mat[3][1] * mat[0][1] + mat[3][2] * mat[0][2]),
+      -(mat[3][0] * mat[1][0] + mat[3][1] * mat[1][1] + mat[3][2] * mat[1][2]),
+      -(mat[3][0] * mat[2][0] + mat[3][1] * mat[2][1] + mat[3][2] * mat[2][2]),
+      1,
+    ],
+  ];
+
+  return matriz;
+}
+
+function matrizApontarPara(origem, alvo, up) {
+  // calcular novo vetor forward
+  let newForward = Vec3d.subtracao(alvo, origem);
+  newForward = normalizaVec3d(newForward);
+
+  // calcular novo vetor up
+  let a = Vec3d.produtoEscalar(
+    newForward,
+    Vec3d.produtoVetorial(up, newForward)
+  );
+  let newUp = Vec3d.subtracao(
+    up,
+    new Vec3d(a * newForward.x, a * newForward.y, a * newForward.z)
+  );
+  newUp = normalizaVec3d(newUp);
+
+  let newRight = Vec3d.produtoVetorial(newUp, newForward);
+
+  let matriz = [
+    [newRight.x, newRight.y, newRight.z, 0],
+    [newUp.x, newUp.y, newUp.z, 0],
+    [newForward.x, newForward.y, newForward.z, 0],
+    [origem.x, origem.y, origem.z, 1],
+  ];
+
+  return matriz;
+}
+
 function matrizParaVec3d(mat) {
   return new Vec3d(mat[0][0], mat[1][0], mat[2][0], mat[3][0]);
 }
@@ -429,7 +578,7 @@ function multMatrizes(mat1, mat2) {
   const j2 = mat2[0].length ? mat2[0].length : 1;
 
   if (j1 !== i2) {
-    console.log("nao pode multiplicar");
+    console.log('nao pode multiplicar');
     return 0;
   }
 
@@ -480,4 +629,38 @@ function multiplicaMatrizPorVec3d(matriz, vec3d) {
   }
 
   return new Vec3d(x, y, z, w);
+}
+
+////////////////////////// EVENTOS //////////////////////////
+
+function handle(camera) {
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp') {
+      camera.y -= 0.01 * tempoDecorrido * 0.001;
+    }
+    if (e.key === 'ArrowDown') {
+      camera.y += 0.01 * tempoDecorrido * 0.001;
+    }
+  });
+
+  document.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      camera.y += 0;
+    }
+  });
+
+  // document.addEventListener('keydown', (e) => {
+  //   if (e.key === 'ArrowRight') {
+  //     data.player.rotation = maths.toRadians(3);
+  //   }
+  //   if (e.key === 'ArrowLeft') {
+  //     data.player.rotation = -maths.toRadians(3);
+  //   }
+  // });
+
+  // document.addEventListener('keyup', (e) => {
+  //   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+  //     data.player.rotation = 0;
+  //   }
+  // });
 }

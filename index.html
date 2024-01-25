@@ -4,12 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="3D Viewport" content="width=device-width, initial-scale=1.0" />
     <title>3D Viewport</title>
+    <style>
+      canvas {
+        margin-left: -4;
+      }
+    </style>
   </head>
   <body onload="InitViewport()">
-    <h1>3D Viewport</h1>
-    <input type="file" name="obj" id="arq" />
-    <canvas id="viewport" width="600" height="600"> Algo deu errado.</canvas>
+    <!-- <h1>3D Viewport</h1> -->
+    <canvas id="viewport" width="1336" height="550"> Algo deu errado.</canvas>
     <br />
+    <input type="file" name="obj" id="arq" />
     <i id="frame time">0</i>
     <script src="viewport.js"></script>
   </body>

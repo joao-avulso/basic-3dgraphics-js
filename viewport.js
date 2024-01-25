@@ -1,23 +1,9 @@
-let canvas = document.getElementById('viewport');
-let ctx = canvas.getContext('2d');
+let canvas = document.getElementById("viewport");
+let ctx = canvas.getContext("2d");
 
 const larguraTela = canvas.width;
 const alturaTela = canvas.height;
 const origemTela = { x: canvas.width / 2, y: canvas.height / 2 };
-
-let tempoDecorrido = 0.0;
-let fTheta = 0.0;
-
-let arqObj = undefined;
-
-document.getElementById('arq').addEventListener('change', function () {
-  let fr = new FileReader();
-  fr.onload = function () {
-    lerArqObj(fr.result);
-  };
-  fr.readAsText(this.files[0]);
-  this.value = '';
-});
 
 ////////////////////////// CLASSES //////////////////////////
 
@@ -40,6 +26,10 @@ class Vec3d {
 
   static subtracao(v1, v2) {
     return new Vec3d(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+  }
+
+  static multiplicacao(v1, escalar) {
+    return new Vec3d(v1.x * escalar, v1.y * escalar, v1.z * escalar);
   }
 
   static produtoVetorial(v1, v2) {
@@ -105,8 +95,8 @@ class Matriz4x4 {
   static rotacaoX(angulo) {
     return [
       [1, 0, 0, 0],
-      [0, Math.cos(angulo), -Math.sin(angulo), 0],
-      [0, Math.sin(angulo), Math.cos(angulo), 0],
+      [0, Math.cos(angulo), Math.sin(angulo), 0],
+      [0, -Math.sin(angulo), Math.cos(angulo), 0],
       [0, 0, 0, 1],
     ];
   }
@@ -122,8 +112,8 @@ class Matriz4x4 {
 
   static rotacaoZ(angulo) {
     return [
-      [Math.cos(angulo), -Math.sin(angulo), 0, 0],
-      [Math.sin(angulo), Math.cos(angulo), 0, 0],
+      [Math.cos(angulo), Math.sin(angulo), 0, 0],
+      [-Math.sin(angulo), Math.cos(angulo), 0, 0],
       [0, 0, 1, 0],
       [0, 0, 0, 1],
     ];
@@ -132,48 +122,25 @@ class Matriz4x4 {
 
 ////////////////////////// INICIALIZAÇÃO //////////////////////////
 
-//ler arquivo .obj
-function lerArqObj(conteudo) {
-  let linhas = conteudo.split('\n');
+// variaveis de tempo
+let tempoDecorrido = 0.0;
+let fTheta = 0.0;
 
-  let modelo = new Modelo();
+// objeto principal
+let Obj = undefined;
 
-  let vertices = [];
-  linhas.forEach((linha) => {
-    let palavras = linha.replace(/(\r\n|\n|\r|  )/gm, '').split(' ');
-    if (palavras[0] === 'v') {
-      vertices.push(
-        new Vec3d(
-          parseFloat(palavras[1]),
-          parseFloat(palavras[2]),
-          parseFloat(palavras[3])
-        )
-      );
-    }
-  });
-
-  // console.log(vertices);
-
-  modelo.poligonos = [];
-  linhas.forEach((linha) => {
-    let palavras = linha.replace(/(\r\n|\n|\r|  )/gm, '').split(' ');
-    // console.log(palavras);
-    if (palavras[0] === 'f') {
-      let poligono = new Poligono();
-      for (i = 1; i < palavras.length; i++) {
-        poligono.vertices.push(vertices[parseInt(palavras[i]) - 1]);
-      }
-      modelo.poligonos.push(poligono);
-    }
-  });
-
-  // console.log(modelo.poligonos[0].vertices);
-
-  arqObj = modelo;
-}
+// variaveis de câmera
+let vecCamera = new Vec3d(0.5, 0.5, -3);
+let vecDirVisao = new Vec3d(0, 0, 1);
+let vecCima = new Vec3d(0, 1, 0);
+let movimentoCam = new Vec3d(0, 0, 0);
+let velocidadeCam = 20;
+let vecAlvo = Vec3d.adicao(vecCamera, vecDirVisao);
+let matCamera = matrizApontarPara(vecCamera, vecAlvo, vecCima);
+let matVisao = matrizInverterApontarPara(matCamera);
 
 function InitViewport(params) {
-  console.log('InitViewport');
+  console.log("InitViewport");
 
   // criar matriz de projeção
   let matrizProj = Matriz4x4.projecao(0.1, 1000.0, 90);
@@ -249,51 +216,39 @@ function InitViewport(params) {
     ]),
   ];
 
-  arqObj = cuboP;
-
-  // variaveis de câmera
-  let vecCamera = new Vec3d(-0.5, 0, -3);
-  let vecDirVisao = new Vec3d(0, 0, 1);
-  let vecCima = new Vec3d(0, 1, 0);
+  Obj = cuboP;
 
   // loop de renderização
   let tInicio = Date.now();
   setInterval(() => {
     // events
-    handle(vecCamera);
-    let vecAlvo = Vec3d.adicao(vecCamera, vecDirVisao);
-
-    // matriz de câmera
-    let matCamera = matrizApontarPara(vecCamera, vecAlvo, vecCima);
-    // matriz de visão
-    let matVisao = matrizInverterApontarPara(matCamera);
+    handle();
 
     // update
-    // transladarModelo(arqObj, 0, Math.cos(fTheta) * 0.005, 0);
-    // rotacionarY(arqObj, 0.3 * tempoDecorrido * 0.001);
+    moveCamera(vecCamera, movimentoCam, velocidadeCam);
 
     // render
     limpaTela();
-    desenhaModelo(arqObj, matrizProj, matVisao);
+    desenhaModelo(Obj, matrizProj, matVisao);
 
-    // tempo
+    // time
     tempoDecorrido = Date.now() - tInicio;
-    document.getElementById('frame time').innerHTML = tempoDecorrido + 'ms';
     fTheta += tempoDecorrido * 0.001;
     tInicio = Date.now();
-  }, 1000 / 60);
+    document.getElementById("frame time").innerHTML = tempoDecorrido + "ms";
+  }, 1000 / 30);
 }
 
 ////////////////////////// RENDER //////////////////////////
 
 // limpa a tela do viewport
 function limpaTela() {
-  ctx.fillStyle = 'black';
+  ctx.fillStyle = "black";
   ctx.fillRect(0, 0, larguraTela, alturaTela);
 }
 
 function desenhaModelo(modelo, matrizProj, matrizVisao) {
-  ctx.strokeStyle = 'white';
+  ctx.strokeStyle = "white";
   if (!modelo.triangulos) {
     modelo.poligonos.forEach((poligono) => {
       desenhaPoligono(poligono, matrizProj, matrizVisao);
@@ -348,11 +303,7 @@ function desenhaPoligono(poligono, matrizProj, matrizVisao) {
   // cria vetor de vértices projetados para viewport
   let vertsProj = [];
   vertsView.forEach((vertice) => {
-    // vertice.z += 3;
-    // vertice.y += 0.5;
     vertsProj.push(multiplicaMatrizPorVec3d(matrizProj, vertice));
-    // vertice.z -= 3;
-    // vertice.y -= 0.5;
   });
 
   // ajustar coordenadas de projeção ao centro da tela
@@ -372,6 +323,15 @@ function desenhaPoligono(poligono, matrizProj, matrizVisao) {
 }
 
 ////////////////////////// TRANSFORMAÇÕES //////////////////////////
+
+function moveCamera() {
+  vecCamera.x += movimentoCam.x * velocidadeCam * tempoDecorrido * 0.001;
+  vecCamera.y += movimentoCam.y * velocidadeCam * tempoDecorrido * 0.001;
+  vecCamera.z += movimentoCam.z * velocidadeCam * tempoDecorrido * 0.001;
+  vecAlvo = Vec3d.adicao(vecCamera, vecDirVisao);
+  matCamera = matrizApontarPara(vecCamera, vecAlvo, vecCima);
+  matVisao = matrizInverterApontarPara(matCamera);
+}
 
 function transladarModelo(modelo, x, y, z) {
   if (!modelo.triangulos) {
@@ -578,7 +538,7 @@ function multMatrizes(mat1, mat2) {
   const j2 = mat2[0].length ? mat2[0].length : 1;
 
   if (j1 !== i2) {
-    console.log('nao pode multiplicar');
+    console.log("nao pode multiplicar");
     return 0;
   }
 
@@ -633,34 +593,97 @@ function multiplicaMatrizPorVec3d(matriz, vec3d) {
 
 ////////////////////////// EVENTOS //////////////////////////
 
-function handle(camera) {
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowUp') {
-      camera.y -= 0.01 * tempoDecorrido * 0.001;
+//eventos do teclado
+function handle() {
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp") {
+      movimentoCam.y = -1;
     }
-    if (e.key === 'ArrowDown') {
-      camera.y += 0.01 * tempoDecorrido * 0.001;
+    if (e.key === "ArrowDown") {
+      movimentoCam.y = 1;
+    }
+  });
+  document.addEventListener("keyup", (e) => {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      movimentoCam.y = 0;
     }
   });
 
-  document.addEventListener('keyup', (e) => {
-    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      camera.y += 0;
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight") {
+      movimentoCam.x = 1;
+    }
+    if (e.key === "ArrowLeft") {
+      movimentoCam.x = -1;
+    }
+  });
+  document.addEventListener("keyup", (e) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      movimentoCam.x = 0;
     }
   });
 
-  // document.addEventListener('keydown', (e) => {
-  //   if (e.key === 'ArrowRight') {
-  //     data.player.rotation = maths.toRadians(3);
-  //   }
-  //   if (e.key === 'ArrowLeft') {
-  //     data.player.rotation = -maths.toRadians(3);
-  //   }
-  // });
+  let vecFrente = Vec3d.multiplicacao(vecDirVisao, velocidadeCam * 0.0001);
 
-  // document.addEventListener('keyup', (e) => {
-  //   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-  //     data.player.rotation = 0;
-  //   }
-  // });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "w") {
+      movimentoCam = Vec3d.adicao(movimentoCam, vecFrente);
+    }
+    if (e.key === "s") {
+      movimentoCam = Vec3d.subtracao(movimentoCam, vecFrente);
+    }
+  });
+  document.addEventListener("keyup", (e) => {
+    if (e.key === "w" || e.key === "s") {
+      movimentoCam = new Vec3d(0, 0, 0);
+    }
+  });
+}
+
+//ler arquivo .obj
+document.getElementById("arq").addEventListener("change", function () {
+  let fr = new FileReader();
+  fr.onload = function () {
+    lerArqObj(fr.result);
+  };
+  fr.readAsText(this.files[0]);
+  this.value = "";
+});
+
+function lerArqObj(conteudo) {
+  let linhas = conteudo.split("\n");
+
+  let modelo = new Modelo();
+
+  let vertices = [];
+  linhas.forEach((linha) => {
+    let palavras = linha.replace(/(\r\n|\n|\r|  )/gm, " ").split(" ");
+    console.log(palavras);
+    if (palavras[0] === "v") {
+      vertices.push(
+        new Vec3d(
+          parseFloat(palavras[1]),
+          -parseFloat(palavras[2]),
+          -parseFloat(palavras[3])
+        )
+      );
+    }
+  });
+
+  console.log(vertices);
+
+  modelo.poligonos = [];
+  linhas.forEach((linha) => {
+    let palavras = linha.replace(/(\r\n|\n|\r|  )/gm, " ").split(" ");
+    // console.log(palavras);
+    if (palavras[0] === "f") {
+      let poligono = new Poligono();
+      for (i = 1; i < palavras.length; i++) {
+        poligono.vertices.push(vertices[parseInt(palavras[i]) - 1]);
+      }
+      modelo.poligonos.push(poligono);
+    }
+  });
+
+  Obj = modelo;
 }

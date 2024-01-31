@@ -1,7 +1,7 @@
-let canvas = document.getElementById('viewport');
-let ctx = canvas.getContext('2d');
+let canvas = document.getElementById("viewport");
+let ctx = canvas.getContext("2d");
 
-canvas.width = window.innerWidth - 18;
+// canvas.width = window.innerWidth - 18;
 
 const larguraTela = canvas.width;
 const alturaTela = canvas.height;
@@ -201,10 +201,12 @@ let invNormais = 1;
 // variaveis de câmera
 let vecCamera = new Vec3d(0, 0, -5); // posição da camera
 let vecDirVisao = new Vec3d(0, 0, 1); // direção da camera
-let velocidadeCam = 20;
+let velocidadeCam = 10;
 let movimentoCam = new Vec3d(0, 0, 0);
 // let cRotY = 0.0; // graus de rotação da camera
 // let rotYcam = 0.0; // escala de rotação da camera
+
+let luz = new Vec3d(vecCamera.x + 5, vecCamera.y, vecCamera.z - 1);
 
 // matriz camera
 let vecCima = new Vec3d(0, 1, 0);
@@ -219,7 +221,7 @@ let matVisao = matrizInverterApontarPara(matCamera);
 let matrizProj = Matriz4x4.projecao(0.1, 1000.0, 90);
 
 function InitViewport() {
-  console.log('InitViewport');
+  console.log("InitViewport");
 
   // loop de renderização
   let tInicio = Date.now();
@@ -231,9 +233,9 @@ function InitViewport() {
     // gerenciamento de tempo
     tFrame = Date.now() - tInicio;
     tInicio = Date.now();
-    document.getElementById('frame time').innerHTML =
-      Math.round(1000 / tFrame) + ' FPS';
-  }, 1000 / 60);
+    document.getElementById("frame time").innerHTML =
+      Math.round(1000 / tFrame) + " FPS";
+  }, 1000 / 30);
 }
 
 ////////////////////////// RENDER //////////////////////////
@@ -245,14 +247,46 @@ function render() {
 
 // limpa a tela do viewport
 function limpaTela() {
-  ctx.fillStyle = 'black';
+  ctx.fillStyle = "black";
   ctx.fillRect(0, 0, larguraTela, alturaTela);
 }
 
-function desenhaModelo(modelo) {
-  ctx.strokeStyle = 'white';
+async function desenhaModelo(modelo) {
+  ctx.strokeStyle = "white";
+  ctx.fillStyle = "white";
+
+  let polisToSort = [];
   modelo.poligonos.forEach((poligono) => {
-    desenhaPoligono(poligono, matrizProj, matVisao);
+    let pol = desenhaPoligono(poligono, matrizProj, matVisao);
+    if (pol) polisToSort.push(pol);
+  });
+
+  // ordenar poligonos por profundidade
+  polisToSort.sort((a, b) => {
+    let zA = 0;
+    let zB = 0;
+    a.vertsView.forEach((vertice) => {
+      zA += vertice.z;
+    });
+    b.vertsView.forEach((vertice) => {
+      zB += vertice.z;
+    });
+    return zB - zA;
+  });
+
+  polisToSort.forEach((poli) => {
+    ctx.strokeStyle = poli.color;
+    ctx.beginPath();
+    ctx.moveTo(poli.vertsProj[0].x, poli.vertsProj[0].y);
+    for (j = 1; j < poli.vertsProj.length; j++) {
+      ctx.lineTo(poli.vertsProj[j].x, poli.vertsProj[j].y);
+    }
+    ctx.lineTo(poli.vertsProj[0].x, poli.vertsProj[0].y);
+    ctx.stroke();
+    if (!escFaces) {
+      ctx.fillStyle = poli.color;
+      ctx.fill();
+    }
   });
 }
 
@@ -262,8 +296,20 @@ function desenhaPoligono(poligono, matrizProj, matrizVisao) {
 
   // escolhe as faces que estão voltadas para a camera
   if (!escFaces) {
-    // normal do poligono
+    // calcular normal do poligono
     let normal = poligono.normal();
+
+    // calcular sombreamento
+    let raioLuz = Vec3d.subtracao(luz, poligono.vertices[0]);
+    let intensidade = Vec3d.produtoEscalar(normal, raioLuz);
+    intensidade = Math.max(0.5, intensidade);
+    ctx.fillStyle = `rgb(${intensidade * 255}, ${intensidade * 255}, ${
+      intensidade * 255
+    })`;
+
+    ctx.strokeStyle = `rgb(${intensidade * 255}, ${intensidade * 255}, ${
+      intensidade * 255
+    })`;
 
     // vetor do poligono para a camera
     let raioCam = Vec3d.subtracao(poligono.vertices[0], vecCamera);
@@ -291,14 +337,21 @@ function desenhaPoligono(poligono, matrizProj, matrizVisao) {
       vert.y += 1 * origemTela.y;
     });
 
-    // desenhar linhas do poligono
-    ctx.beginPath();
-    ctx.moveTo(vertsProj[0].x, vertsProj[0].y);
-    for (i = 1; i < vertsProj.length; i++) {
-      ctx.lineTo(vertsProj[i].x, vertsProj[i].y);
-    }
-    ctx.lineTo(vertsProj[0].x, vertsProj[0].y);
-    ctx.stroke();
+    return (poli = {
+      vertsProj,
+      vertsView,
+      color: ctx.fillStyle,
+    });
+
+    // // desenhar linhas do poligono
+    // ctx.beginPath();
+    // ctx.moveTo(vertsProj[0].x, vertsProj[0].y);
+    // for (i = 1; i < vertsProj.length; i++) {
+    //   ctx.lineTo(vertsProj[i].x, vertsProj[i].y);
+    // }
+    // ctx.lineTo(vertsProj[0].x, vertsProj[0].y);
+    // ctx.stroke();
+    // if (!escFaces) ctx.fill();
   }
 }
 
@@ -306,7 +359,7 @@ function desenhaPoligono(poligono, matrizProj, matrizVisao) {
 
 function update() {
   atualizaCam(vecCamera, movimentoCam, velocidadeCam);
-  rotacionarModelo(Obj, 10 * tFrame * 0.001, new Vec3d(1, 1, 1));
+  // rotacionarModelo(Obj, 10 * tFrame * 0.001, new Vec3d(0, 1, 0));
 }
 
 // atualiza a posição e matriz de visao da camera
@@ -315,15 +368,20 @@ function atualizaCam() {
   vecCamera.y += movimentoCam.y * tFrame * 0.001;
   vecCamera.z += movimentoCam.z * tFrame * 0.001;
   // cRotY += rotYcam * tempoDecorrido * 0.001;
+  vecCamera = Vec3d.multMatrizVec(
+    Matriz4x4.rotacaoEixo(10 * tFrame * 0.001, new Vec3d(0, 1, 0)),
+    vecCamera
+  );
 
   vecDirVisao = new Vec3d(0, 0, 1);
   vecCima = new Vec3d(0, 1, 0);
-  vecAlvo = new Vec3d(0, 0, 1);
+  vecAlvo = new Vec3d(0, 0, 0);
   // matRotacaoCam = Matriz4x4.rotacaoY(-cRotY);
   // vecDirVisao = Vec3d.multMatrizVec(matRotacaoCam, vecAlvo);
-  vecAlvo = Vec3d.adicao(vecCamera, vecDirVisao);
+  // vecAlvo = Vec3d.adicao(vecCamera, vecDirVisao);
   matCamera = matrizApontarPara(vecCamera, vecAlvo, vecCima);
   matVisao = matrizInverterApontarPara(matCamera);
+  luz = new Vec3d(vecCamera.x + 5, vecCamera.y, vecCamera.z - 10);
 }
 
 // rotacionar modelo em torno de um eixo
@@ -408,46 +466,46 @@ function escolherFaces() {
 
 //eventos do teclado
 function handle() {
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowUp') {
-      movimentoCam.y = -velocidadeCam;
-    }
-    if (e.key === 'ArrowDown') {
-      movimentoCam.y = velocidadeCam;
-    }
-  });
-  document.addEventListener('keyup', (e) => {
-    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      movimentoCam.y = 0;
-    }
-  });
+  // document.addEventListener("keydown", (e) => {
+  //   if (e.key === "ArrowUp") {
+  //     movimentoCam.y = -velocidadeCam;
+  //   }
+  //   if (e.key === "ArrowDown") {
+  //     movimentoCam.y = velocidadeCam;
+  //   }
+  // });
+  // document.addEventListener("keyup", (e) => {
+  //   if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+  //     movimentoCam.y = 0;
+  //   }
+  // });
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowRight') {
-      movimentoCam.x = velocidadeCam;
-    }
-    if (e.key === 'ArrowLeft') {
-      movimentoCam.x = -velocidadeCam;
-    }
-  });
-  document.addEventListener('keyup', (e) => {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      movimentoCam.x = 0;
-    }
-  });
+  // document.addEventListener("keydown", (e) => {
+  //   if (e.key === "ArrowRight") {
+  //     movimentoCam.x = velocidadeCam;
+  //   }
+  //   if (e.key === "ArrowLeft") {
+  //     movimentoCam.x = -velocidadeCam;
+  //   }
+  // });
+  // document.addEventListener("keyup", (e) => {
+  //   if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+  //     movimentoCam.x = 0;
+  //   }
+  // });
 
   let vecFrente = Vec3d.multiplicacao(vecDirVisao, velocidadeCam * 0.0001);
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'w') {
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "w") {
       movimentoCam = Vec3d.adicao(movimentoCam, vecFrente);
     }
-    if (e.key === 's') {
+    if (e.key === "s") {
       movimentoCam = Vec3d.subtracao(movimentoCam, vecFrente);
     }
   });
-  document.addEventListener('keyup', (e) => {
-    if (e.key === 'w' || e.key === 's') {
+  document.addEventListener("keyup", (e) => {
+    if (e.key === "w" || e.key === "s") {
       movimentoCam = new Vec3d(0, 0, 0);
     }
   });
@@ -470,7 +528,7 @@ function handle() {
 }
 
 //ler arquivo .obj
-document.getElementById('arq').addEventListener('change', function () {
+document.getElementById("arq").addEventListener("change", function () {
   let fr = new FileReader();
   fr.onload = function () {
     lerArqObj(fr.result);
@@ -480,14 +538,14 @@ document.getElementById('arq').addEventListener('change', function () {
 });
 
 function lerArqObj(conteudo) {
-  let linhas = conteudo.split('\n');
+  let linhas = conteudo.split("\n");
 
   let modelo = new Modelo();
 
   let vertices = [];
   linhas.forEach((linha) => {
-    let palavras = linha.replace(/(  )/gm, ' ').split(' ');
-    if (palavras[0] === 'v') {
+    let palavras = linha.replace(/(  )/gm, " ").split(" ");
+    if (palavras[0] === "v") {
       vertices.push(
         new Vec3d(
           parseFloat(palavras[1]),
@@ -500,8 +558,8 @@ function lerArqObj(conteudo) {
 
   modelo.poligonos = [];
   linhas.forEach((linha) => {
-    let palavras = linha.replace(/(  )/gm, ' ').split(' ');
-    if (palavras[0] === 'f') {
+    let palavras = linha.replace(/(  )/gm, " ").split(" ");
+    if (palavras[0] === "f") {
       let poligono = new Poligono();
       for (i = 1; i < palavras.length; i++) {
         poligono.vertices.push(vertices[parseInt(palavras[i]) - 1]);
